@@ -2,111 +2,14 @@ use gtk4::Label;
 use gtk4::gio::SimpleAction;
 use gtk4::prelude::*;
 use gtk4::{Application, ApplicationWindow, Notebook, ScrolledWindow};
-use serde::{Deserialize, Serialize};
-use std::fs;
-use std::path::PathBuf;
 use std::rc::Rc;
 use vte4::Terminal;
 use vte4::prelude::*;
 
+mod config;
+use config::Config;
+
 const APP_ID: &str = "com.nterm.Terminal";
-
-#[derive(Debug, Serialize, Deserialize)]
-struct Config {
-    /// The shell command to execute (e.g., "/bin/bash", "/usr/bin/zsh")
-    shell: Option<String>,
-    /// Number of scrollback lines to keep in history
-    scrollback_lines: Option<i64>,
-    /// Enable cursor blinking
-    cursor_blink: Option<bool>,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            shell: None,
-            scrollback_lines: Some(10000),
-            cursor_blink: Some(true),
-        }
-    }
-}
-
-impl Config {
-    /// Get the XDG config directory for nterm
-    fn config_dir() -> Option<PathBuf> {
-        dirs::config_dir().map(|p| p.join("nterm"))
-    }
-
-    /// Get the config file path
-    fn config_file() -> Option<PathBuf> {
-        Self::config_dir().map(|p| p.join("config.toml"))
-    }
-
-    /// Load configuration from file, or create default if it doesn't exist
-    fn load() -> Self {
-        let config_file = match Self::config_file() {
-            Some(path) => path,
-            None => {
-                eprintln!("Could not determine config directory, using defaults");
-                return Self::default();
-            }
-        };
-
-        if config_file.exists() {
-            match fs::read_to_string(&config_file) {
-                Ok(contents) => match toml::from_str(&contents) {
-                    Ok(config) => config,
-                    Err(e) => {
-                        eprintln!("Failed to parse config file: {}. Using defaults.", e);
-                        Self::default()
-                    }
-                },
-                Err(e) => {
-                    eprintln!("Failed to read config file: {}. Using defaults.", e);
-                    Self::default()
-                }
-            }
-        } else {
-            // Create default config file
-            let config = Self::default();
-            if let Err(e) = config.save() {
-                eprintln!("Failed to create default config file: {}", e);
-            } else {
-                println!("Created default config at: {}", config_file.display());
-            }
-            config
-        }
-    }
-
-    /// Save configuration to file
-    fn save(&self) -> std::io::Result<()> {
-        let config_file = Self::config_file().ok_or_else(|| {
-            std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "Could not determine config directory",
-            )
-        })?;
-
-        // Create config directory if it doesn't exist
-        if let Some(parent) = config_file.parent() {
-            fs::create_dir_all(parent)?;
-        }
-
-        let contents = toml::to_string_pretty(self)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-
-        fs::write(&config_file, contents)?;
-        Ok(())
-    }
-
-    /// Get the shell to use (from config or system default)
-    fn get_shell(&self) -> String {
-        self.shell
-            .clone()
-            .or_else(|| std::env::var("SHELL").ok())
-            .unwrap_or_else(|| "/bin/bash".to_string())
-    }
-}
 
 fn main() {
     let app = Application::builder().application_id(APP_ID).build();
@@ -160,9 +63,15 @@ fn create_terminal_tab(config: &Config) -> (ScrolledWindow, Terminal) {
 }
 
 /// Set up dynamic tab title updates based on terminal window title
-fn setup_tab_title_update(terminal: &Terminal, notebook: &Notebook, page_widget: &ScrolledWindow) {
+fn setup_tab_title_update(
+    terminal: &Terminal,
+    notebook: &Notebook,
+    page_widget: &ScrolledWindow,
+    window: &ApplicationWindow,
+) {
     let notebook_clone = notebook.clone();
     let page_widget_clone = page_widget.clone();
+    let window_clone = window.clone();
 
     terminal.connect_window_title_changed(move |terminal| {
         if let Some(title) = terminal.window_title() {
@@ -174,6 +83,11 @@ fn setup_tab_title_update(terminal: &Terminal, notebook: &Notebook, page_widget:
                         // Update the tab label
                         let label = Label::new(Some(&title));
                         notebook_clone.set_tab_label(&page_widget_clone, Some(&label));
+
+                        // Update window title if this is the current tab
+                        if Some(i) == notebook_clone.current_page() {
+                            window_clone.set_title(Some(&format!("NTerm - {}", title)));
+                        }
                         break;
                     }
                 }
@@ -187,15 +101,33 @@ fn build_ui(app: &Application) {
     let config = Rc::new(Config::load());
 
     // Create a notebook (tabbed interface)
-    let notebook = Notebook::builder().scrollable(true).build();
+    let notebook = Notebook::builder()
+        .scrollable(true)
+        .show_tabs(false) // Hide tabs when there's only one tab
+        .build();
+
+    // Configure tabs to expand and fill available width
+    notebook.set_tab_pos(gtk4::PositionType::Top);
+
+    // Create the main application window
+    let window = ApplicationWindow::builder()
+        .application(app)
+        .title("NTerm - Terminal Emulator")
+        .default_width(800)
+        .default_height(600)
+        .child(&notebook)
+        .build();
 
     // Create the first terminal tab
     let (scrolled_window, terminal) = create_terminal_tab(&config);
-    let label = Label::new(Some("Terminal"));
-    notebook.append_page(&scrolled_window, Some(&label));
+    let tab_label = Label::new(Some("Terminal"));
+    notebook.append_page(&scrolled_window, Some(&tab_label));
 
     // Set up dynamic tab title updates
-    setup_tab_title_update(&terminal, &notebook, &scrolled_window);
+    setup_tab_title_update(&terminal, &notebook, &scrolled_window, &window);
+
+    // Give focus to the terminal
+    terminal.grab_focus();
 
     // Handle tab closure when the first tab's process exits
     let notebook_clone = notebook.clone();
@@ -209,6 +141,9 @@ fn build_ui(app: &Application) {
                     notebook_clone.remove_page(Some(i));
                     if notebook_clone.n_pages() == 0 {
                         std::process::exit(0);
+                    } else {
+                        // Hide tabs if only one tab remains
+                        notebook_clone.set_show_tabs(notebook_clone.n_pages() > 1);
                     }
                     return;
                 }
@@ -216,18 +151,10 @@ fn build_ui(app: &Application) {
         }
     });
 
-    // Create the main application window
-    let window = ApplicationWindow::builder()
-        .application(app)
-        .title("NTerm - Terminal Emulator")
-        .default_width(800)
-        .default_height(600)
-        .child(&notebook)
-        .build();
-
     // Set up keyboard shortcuts using actions
     let notebook_for_action = notebook.clone();
     let config_for_action = config.clone();
+    let window_for_action = window.clone();
 
     let new_tab_action = SimpleAction::new("new-tab", None);
     new_tab_action.connect_activate(move |_, _| {
@@ -239,8 +166,19 @@ fn build_ui(app: &Application) {
         let page_num = notebook_for_action.append_page(&scrolled_window, Some(&label));
         notebook_for_action.set_current_page(Some(page_num));
 
+        // Show tabs if we now have more than one
+        notebook_for_action.set_show_tabs(notebook_for_action.n_pages() > 1);
+
         // Set up dynamic tab title updates
-        setup_tab_title_update(&terminal, &notebook_for_action, &scrolled_window);
+        setup_tab_title_update(
+            &terminal,
+            &notebook_for_action,
+            &scrolled_window,
+            &window_for_action,
+        );
+
+        // Give focus to the terminal
+        terminal.grab_focus();
 
         // Handle tab closure when process exits
         let notebook_clone = notebook_for_action.clone();
@@ -255,6 +193,9 @@ fn build_ui(app: &Application) {
                                 notebook_clone.remove_page(Some(i));
                                 if notebook_clone.n_pages() == 0 {
                                     std::process::exit(0);
+                                } else {
+                                    // Hide tabs if only one tab remains
+                                    notebook_clone.set_show_tabs(notebook_clone.n_pages() > 1);
                                 }
                                 return;
                             }
