@@ -34,11 +34,16 @@ cargo run
 ## Features
 
 - ✅ Full VTE terminal emulation
+- ✅ Multiple tabs support with `Ctrl+Shift+T` to create new tabs
 - ✅ Scrollbar support
 - ✅ 10,000 lines scrollback buffer
 - ✅ Uses system default shell ($SHELL)
 - ✅ Blinking cursor
 - ✅ XDG-compliant configuration file
+
+## Keyboard Shortcuts
+
+- `Ctrl+Shift+T` - Create a new terminal tab
 
 ## Configuration
 
