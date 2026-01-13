@@ -122,12 +122,28 @@ fn build_ui(app: &Application) {
     let (scrolled_window, terminal) = create_terminal_tab(&config);
     let tab_label = Label::new(Some("Terminal"));
     notebook.append_page(&scrolled_window, Some(&tab_label));
+    notebook.set_tab_reorderable(&scrolled_window, true);
+    notebook.set_tab_detachable(&scrolled_window, false);
+    notebook
+        .page(&scrolled_window)
+        .set_property("tab-expand", true);
 
     // Set up dynamic tab title updates
     setup_tab_title_update(&terminal, &notebook, &scrolled_window, &window);
 
     // Give focus to the terminal
     terminal.grab_focus();
+
+    // Handle tab switching - give focus to the active terminal
+    notebook.connect_switch_page(|_notebook, page, _page_num| {
+        if let Some(scrolled) = page.downcast_ref::<ScrolledWindow>() {
+            if let Some(child) = scrolled.child() {
+                if let Some(terminal) = child.downcast_ref::<Terminal>() {
+                    terminal.grab_focus();
+                }
+            }
+        }
+    });
 
     // Handle tab closure when the first tab's process exits
     let notebook_clone = notebook.clone();
@@ -144,6 +160,19 @@ fn build_ui(app: &Application) {
                     } else {
                         // Hide tabs if only one tab remains
                         notebook_clone.set_show_tabs(notebook_clone.n_pages() > 1);
+
+                        // Give focus to the current tab's terminal
+                        if let Some(current_page) = notebook_clone.current_page() {
+                            if let Some(page) = notebook_clone.nth_page(Some(current_page)) {
+                                if let Some(scrolled) = page.downcast_ref::<ScrolledWindow>() {
+                                    if let Some(child) = scrolled.child() {
+                                        if let Some(terminal) = child.downcast_ref::<Terminal>() {
+                                            terminal.grab_focus();
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                     return;
                 }
@@ -164,6 +193,12 @@ fn build_ui(app: &Application) {
         let label = Label::new(Some("Terminal"));
 
         let page_num = notebook_for_action.append_page(&scrolled_window, Some(&label));
+        notebook_for_action.set_tab_reorderable(&scrolled_window, true);
+        notebook_for_action.set_tab_detachable(&scrolled_window, false);
+        notebook_for_action
+            .page(&scrolled_window)
+            .set_property("tab-expand", true);
+
         notebook_for_action.set_current_page(Some(page_num));
 
         // Show tabs if we now have more than one
@@ -196,6 +231,25 @@ fn build_ui(app: &Application) {
                                 } else {
                                     // Hide tabs if only one tab remains
                                     notebook_clone.set_show_tabs(notebook_clone.n_pages() > 1);
+
+                                    // Give focus to the current tab's terminal
+                                    if let Some(current_page) = notebook_clone.current_page() {
+                                        if let Some(page) =
+                                            notebook_clone.nth_page(Some(current_page))
+                                        {
+                                            if let Some(scrolled) =
+                                                page.downcast_ref::<ScrolledWindow>()
+                                            {
+                                                if let Some(child) = scrolled.child() {
+                                                    if let Some(terminal) =
+                                                        child.downcast_ref::<Terminal>()
+                                                    {
+                                                        terminal.grab_focus();
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                                 return;
                             }
