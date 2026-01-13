@@ -31,6 +31,27 @@ cargo build --release
 cargo run
 ```
 
+Alternatively, using the Makefile:
+
+```bash
+# Build (debug)
+make build
+
+# Build (release)
+make release
+
+# Run
+make run
+
+# Install to /usr/local/bin
+sudo make install
+
+# Clean build artifacts
+make clean
+```
+
+For all available targets, run `make help`.
+
 ## Features
 
 - ✅ Full VTE terminal emulation
