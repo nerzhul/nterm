@@ -1,0 +1,16 @@
+# NTerm Configuration File
+# This file will be automatically created at: ~/.config/nterm/config.toml
+# 
+# All fields are optional. If not specified, sensible defaults will be used.
+
+# The shell to execute when opening a terminal
+# If not specified, uses the $SHELL environment variable, or /bin/bash as fallback
+# shell = "/bin/zsh"
+
+# Number of lines to keep in scrollback history
+# Default: 10000
+# scrollback_lines = 10000
+
+# Enable cursor blinking
+# Default: true
+# cursor_blink = true
