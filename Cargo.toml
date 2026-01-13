@@ -12,3 +12,4 @@ glib = "0.21.5"
 dirs = "5.0"
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
+libc = "0.2.180"

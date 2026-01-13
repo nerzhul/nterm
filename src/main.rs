@@ -2,9 +2,10 @@ use gtk4::Label;
 use gtk4::gio::SimpleAction;
 use gtk4::prelude::*;
 use gtk4::{
-    Application, ApplicationWindow, Box, Button, Notebook, Orientation, ScrolledWindow, SearchBar,
-    SearchEntry,
+    Application, ApplicationWindow, Box, Button, ButtonsType, MessageDialog, MessageType, Notebook,
+    Orientation, ResponseType, ScrolledWindow, SearchBar, SearchEntry,
 };
+use std::os::unix::io::AsRawFd;
 use std::rc::Rc;
 use vte4::Terminal;
 use vte4::prelude::*;
@@ -149,6 +150,144 @@ fn create_terminal_tab(config: &Config) -> (Box, Terminal, SearchBar) {
     (vbox, terminal, search_bar)
 }
 
+/// Check if a terminal has a foreground process running (not just the shell)
+/// Returns Some(program_name) if a non-shell program is running, None otherwise
+fn has_foreground_process(terminal: &Terminal) -> Option<String> {
+    if let Some(pty) = terminal.pty() {
+        let fd = pty.fd().as_raw_fd();
+
+        // Get the foreground process group ID
+        // SAFETY: fd is a valid file descriptor from the PTY
+        let fg_pgid = unsafe { libc::tcgetpgrp(fd) };
+
+        if fg_pgid > 0 {
+            // Read /proc/<pgid>/stat to get the process name
+            let stat_path = format!("/proc/{}/stat", fg_pgid);
+            if let Ok(stat_content) = std::fs::read_to_string(&stat_path) {
+                // Parse the stat file to get the command name (between parentheses)
+                if let Some(start) = stat_content.find('(') {
+                    if let Some(end) = stat_content.rfind(')') {
+                        let cmd_name = &stat_content[start + 1..end];
+
+                        // Check if it's a shell
+                        let is_shell = matches!(
+                            cmd_name,
+                            "bash" | "zsh" | "sh" | "fish" | "dash" | "ksh" | "csh" | "tcsh"
+                        );
+
+                        // If it's not a shell, return the program name
+                        if !is_shell {
+                            return Some(cmd_name.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // If we can't determine or it's a shell, return None
+    None
+}
+
+/// Create a close button with icon for a tab
+fn create_close_button_with_confirmation(
+    notebook: &Notebook,
+    page_widget: &Box,
+    terminal: &Terminal,
+    window: &ApplicationWindow,
+) -> Button {
+    let close_button = Button::builder()
+        .icon_name("window-close-symbolic")
+        .has_frame(false)
+        .build();
+
+    let notebook_clone = notebook.clone();
+    let page_widget_clone = page_widget.clone();
+    let terminal_clone = terminal.clone();
+    let window_clone = window.clone();
+
+    close_button.connect_clicked(move |_| {
+        // Check if there's a foreground process running
+        if let Some(program_name) = has_foreground_process(&terminal_clone) {
+            // Show confirmation dialog
+            let dialog = MessageDialog::builder()
+                .transient_for(&window_clone)
+                .modal(true)
+                .message_type(MessageType::Warning)
+                .buttons(ButtonsType::None)
+                .text("Close tab?")
+                .secondary_text(&format!(
+                    "The program '{}' is running in this tab. Do you really want to close it?",
+                    program_name
+                ))
+                .build();
+
+            dialog.add_button("Cancel", ResponseType::Cancel);
+            dialog.add_button("Close", ResponseType::Accept);
+            dialog.set_default_response(ResponseType::Cancel);
+
+            let notebook_for_dialog = notebook_clone.clone();
+            let page_widget_for_dialog = page_widget_clone.clone();
+
+            dialog.connect_response(move |dialog, response| {
+                if response == ResponseType::Accept {
+                    close_tab(&notebook_for_dialog, &page_widget_for_dialog);
+                }
+                dialog.close();
+            });
+
+            dialog.show();
+        } else {
+            // No foreground process, close immediately
+            close_tab(&notebook_clone, &page_widget_clone);
+        }
+    });
+
+    close_button
+}
+
+/// Close a tab and handle cleanup
+fn close_tab(notebook: &Notebook, page_widget: &Box) {
+    let n_pages = notebook.n_pages();
+    for i in 0..n_pages {
+        if let Some(page) = notebook.nth_page(Some(i)) {
+            if page == *page_widget {
+                notebook.remove_page(Some(i));
+                if notebook.n_pages() == 0 {
+                    std::process::exit(0);
+                } else {
+                    // Hide tabs if only one tab remains
+                    notebook.set_show_tabs(notebook.n_pages() > 1);
+
+                    // Give focus to the current tab's terminal
+                    if let Some(current_page) = notebook.current_page() {
+                        if let Some(page) = notebook.nth_page(Some(current_page)) {
+                            if let Some(vbox) = page.downcast_ref::<Box>() {
+                                let mut child = vbox.first_child();
+                                while let Some(widget) = child {
+                                    if let Some(scrolled) = widget.downcast_ref::<ScrolledWindow>()
+                                    {
+                                        if let Some(terminal_child) = scrolled.child() {
+                                            if let Some(terminal) =
+                                                terminal_child.downcast_ref::<Terminal>()
+                                            {
+                                                terminal.grab_focus();
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    child = widget.next_sibling();
+                                }
+                            }
+                        }
+                    }
+                }
+                return;
+            }
+        }
+    }
+}
+
 /// Set up dynamic tab title updates based on terminal window title
 fn setup_tab_title_update(
     terminal: &Terminal,
@@ -167,9 +306,21 @@ fn setup_tab_title_update(
             for i in 0..n_pages {
                 if let Some(page) = notebook_clone.nth_page(Some(i)) {
                     if page == page_widget_clone {
-                        // Update the tab label
-                        let label = Label::new(Some(&title));
-                        notebook_clone.set_tab_label(&page_widget_clone, Some(&label));
+                        // Update the tab label text (find the Label in the tab_box)
+                        if let Some(tab_label_widget) = notebook_clone.tab_label(&page_widget_clone)
+                        {
+                            if let Some(tab_box) = tab_label_widget.downcast_ref::<Box>() {
+                                // Find the Label in the tab_box and update its text
+                                let mut child = tab_box.first_child();
+                                while let Some(widget) = child {
+                                    if let Some(label) = widget.downcast_ref::<Label>() {
+                                        label.set_text(&title);
+                                        break;
+                                    }
+                                    child = widget.next_sibling();
+                                }
+                            }
+                        }
 
                         // Update window title if this is the current tab
                         if Some(i) == notebook_clone.current_page() {
@@ -208,8 +359,18 @@ fn build_ui(app: &Application) {
 
     // Create the first terminal tab
     let (vbox, terminal, _search_bar) = create_terminal_tab(&config);
+
+    // Create tab label with close button
+    let tab_box = Box::new(Orientation::Horizontal, 6);
     let tab_label = Label::new(Some("Terminal"));
-    notebook.append_page(&vbox, Some(&tab_label));
+    tab_label.set_hexpand(true);
+    tab_label.set_xalign(0.5);
+    let close_button = create_close_button_with_confirmation(&notebook, &vbox, &terminal, &window);
+
+    tab_box.append(&tab_label);
+    tab_box.append(&close_button);
+
+    notebook.append_page(&vbox, Some(&tab_box));
     notebook.set_tab_reorderable(&vbox, true);
     notebook.set_tab_detachable(&vbox, false);
     notebook.page(&vbox).set_property("tab-expand", true);
@@ -300,9 +461,22 @@ fn build_ui(app: &Application) {
         // Create a new terminal tab
         let (vbox, terminal, _search_bar) = create_terminal_tab(&config_for_action);
 
+        // Create tab label with close button
+        let tab_box = Box::new(Orientation::Horizontal, 6);
         let label = Label::new(Some("Terminal"));
+        label.set_hexpand(true);
+        label.set_xalign(0.5);
+        let close_button = create_close_button_with_confirmation(
+            &notebook_for_action,
+            &vbox,
+            &terminal,
+            &window_for_action,
+        );
 
-        let page_num = notebook_for_action.append_page(&vbox, Some(&label));
+        tab_box.append(&label);
+        tab_box.append(&close_button);
+
+        let page_num = notebook_for_action.append_page(&vbox, Some(&tab_box));
         notebook_for_action.set_tab_reorderable(&vbox, true);
         notebook_for_action.set_tab_detachable(&vbox, false);
         notebook_for_action
