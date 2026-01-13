@@ -30,3 +30,7 @@
 # Switch to next tab
 # Default: "<Ctrl>Right"
 # next_tab = "<Ctrl>Right"
+
+# Toggle search in current terminal
+# Default: "<Ctrl><Shift>F"
+# search = "<Ctrl><Shift>F"

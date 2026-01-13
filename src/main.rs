@@ -1,7 +1,10 @@
 use gtk4::Label;
 use gtk4::gio::SimpleAction;
 use gtk4::prelude::*;
-use gtk4::{Application, ApplicationWindow, Notebook, ScrolledWindow};
+use gtk4::{
+    Application, ApplicationWindow, Box, Button, Notebook, Orientation, ScrolledWindow, SearchBar,
+    SearchEntry,
+};
 use std::rc::Rc;
 use vte4::Terminal;
 use vte4::prelude::*;
@@ -19,7 +22,7 @@ fn main() {
 }
 
 /// Create a new terminal tab with the given configuration
-fn create_terminal_tab(config: &Config) -> (ScrolledWindow, Terminal) {
+fn create_terminal_tab(config: &Config) -> (Box, Terminal, SearchBar) {
     // Create the VTE terminal widget
     let terminal = Terminal::new();
 
@@ -59,14 +62,98 @@ fn create_terminal_tab(config: &Config) -> (ScrolledWindow, Terminal) {
         .vscrollbar_policy(gtk4::PolicyType::Always)
         .build();
 
-    (scrolled_window, terminal)
+    // Create search bar and entry
+    let search_entry = SearchEntry::new();
+
+    // Create previous and next buttons
+    let prev_button = Button::builder()
+        .icon_name("go-up-symbolic")
+        .tooltip_text("Previous result (Shift+Enter)")
+        .build();
+
+    let next_button = Button::builder()
+        .icon_name("go-down-symbolic")
+        .tooltip_text("Next result (Enter)")
+        .build();
+
+    // Create a horizontal box for search entry and buttons
+    let search_box = Box::new(Orientation::Horizontal, 6);
+    search_box.append(&search_entry);
+    search_box.append(&prev_button);
+    search_box.append(&next_button);
+
+    let search_bar = SearchBar::builder()
+        .child(&search_box)
+        .show_close_button(true)
+        .build();
+
+    // Setup search functionality
+    let terminal_for_search = terminal.clone();
+    search_entry.connect_search_changed(move |entry| {
+        let text = entry.text();
+        if !text.is_empty() {
+            // Create regex for search with MULTILINE flag (0x08000000 in PCRE2)
+            // VTE requires MULTILINE flag for terminal search
+            if let Ok(regex) = vte4::Regex::for_search(&text, 0x08000000) {
+                terminal_for_search.search_set_regex(Some(&regex), 0);
+                terminal_for_search.search_find_next();
+            }
+        }
+    });
+
+    // Handle Enter key to find next
+    let terminal_for_next = terminal.clone();
+    search_entry.connect_activate(move |_| {
+        terminal_for_next.search_find_next();
+    });
+
+    // Handle Shift+Enter to find previous using key-press event
+    let terminal_for_prev = terminal.clone();
+    let key_controller = gtk4::EventControllerKey::new();
+    key_controller.connect_key_pressed(move |_, keyval, _keycode, modifiers| {
+        // Check for Shift+Enter (Return key with Shift modifier)
+        if keyval == gtk4::gdk::Key::Return
+            && modifiers.contains(gtk4::gdk::ModifierType::SHIFT_MASK)
+        {
+            terminal_for_prev.search_find_previous();
+            gtk4::glib::Propagation::Stop
+        } else {
+            gtk4::glib::Propagation::Proceed
+        }
+    });
+    search_entry.add_controller(key_controller);
+
+    // Connect button clicks
+    let terminal_for_prev_btn = terminal.clone();
+    prev_button.connect_clicked(move |_| {
+        terminal_for_prev_btn.search_find_previous();
+    });
+
+    let terminal_for_next_btn = terminal.clone();
+    next_button.connect_clicked(move |_| {
+        terminal_for_next_btn.search_find_next();
+    });
+
+    // Connect search bar to search entry
+    search_bar.connect_entry(&search_entry);
+
+    // Create a vertical box to hold search bar and terminal
+    let vbox = Box::new(Orientation::Vertical, 0);
+    vbox.append(&search_bar);
+    vbox.append(&scrolled_window);
+
+    // Make the scrolled window expand to fill vertical space
+    scrolled_window.set_vexpand(true);
+    scrolled_window.set_hexpand(true);
+
+    (vbox, terminal, search_bar)
 }
 
 /// Set up dynamic tab title updates based on terminal window title
 fn setup_tab_title_update(
     terminal: &Terminal,
     notebook: &Notebook,
-    page_widget: &ScrolledWindow,
+    page_widget: &Box,
     window: &ApplicationWindow,
 ) {
     let notebook_clone = notebook.clone();
@@ -120,17 +207,15 @@ fn build_ui(app: &Application) {
         .build();
 
     // Create the first terminal tab
-    let (scrolled_window, terminal) = create_terminal_tab(&config);
+    let (vbox, terminal, _search_bar) = create_terminal_tab(&config);
     let tab_label = Label::new(Some("Terminal"));
-    notebook.append_page(&scrolled_window, Some(&tab_label));
-    notebook.set_tab_reorderable(&scrolled_window, true);
-    notebook.set_tab_detachable(&scrolled_window, false);
-    notebook
-        .page(&scrolled_window)
-        .set_property("tab-expand", true);
+    notebook.append_page(&vbox, Some(&tab_label));
+    notebook.set_tab_reorderable(&vbox, true);
+    notebook.set_tab_detachable(&vbox, false);
+    notebook.page(&vbox).set_property("tab-expand", true);
 
     // Set up dynamic tab title updates
-    setup_tab_title_update(&terminal, &notebook, &scrolled_window, &window);
+    setup_tab_title_update(&terminal, &notebook, &vbox, &window);
 
     // Give focus to the terminal
     terminal.grab_focus();
@@ -138,28 +223,36 @@ fn build_ui(app: &Application) {
     // Handle tab switching - give focus to the active terminal and update window title
     let window_for_switch = window.clone();
     notebook.connect_switch_page(move |_notebook, page, _page_num| {
-        if let Some(scrolled) = page.downcast_ref::<ScrolledWindow>() {
-            if let Some(child) = scrolled.child() {
-                if let Some(terminal) = child.downcast_ref::<Terminal>() {
-                    terminal.grab_focus();
-                    // Update window title with the current terminal's title
-                    if let Some(title) = terminal.window_title() {
-                        window_for_switch.set_title(Some(&format!("NTerm - {}", title)));
+        if let Some(vbox) = page.downcast_ref::<Box>() {
+            // Find the ScrolledWindow in the Box children
+            let mut child = vbox.first_child();
+            while let Some(widget) = child {
+                if let Some(scrolled) = widget.downcast_ref::<ScrolledWindow>() {
+                    if let Some(terminal_child) = scrolled.child() {
+                        if let Some(terminal) = terminal_child.downcast_ref::<Terminal>() {
+                            terminal.grab_focus();
+                            // Update window title with the current terminal's title
+                            if let Some(title) = terminal.window_title() {
+                                window_for_switch.set_title(Some(&format!("NTerm - {}", title)));
+                            }
+                            break;
+                        }
                     }
                 }
+                child = widget.next_sibling();
             }
         }
     });
 
     // Handle tab closure when the first tab's process exits
     let notebook_clone = notebook.clone();
-    let scrolled_window_clone = scrolled_window.clone();
+    let vbox_clone = vbox.clone();
     terminal.connect_child_exited(move |_terminal, _| {
         // Find and remove the tab containing this terminal
         let n_pages = notebook_clone.n_pages();
         for i in 0..n_pages {
             if let Some(page) = notebook_clone.nth_page(Some(i)) {
-                if page == scrolled_window_clone {
+                if page == vbox_clone {
                     notebook_clone.remove_page(Some(i));
                     if notebook_clone.n_pages() == 0 {
                         std::process::exit(0);
@@ -170,11 +263,22 @@ fn build_ui(app: &Application) {
                         // Give focus to the current tab's terminal
                         if let Some(current_page) = notebook_clone.current_page() {
                             if let Some(page) = notebook_clone.nth_page(Some(current_page)) {
-                                if let Some(scrolled) = page.downcast_ref::<ScrolledWindow>() {
-                                    if let Some(child) = scrolled.child() {
-                                        if let Some(terminal) = child.downcast_ref::<Terminal>() {
-                                            terminal.grab_focus();
+                                if let Some(vbox) = page.downcast_ref::<Box>() {
+                                    let mut child = vbox.first_child();
+                                    while let Some(widget) = child {
+                                        if let Some(scrolled) =
+                                            widget.downcast_ref::<ScrolledWindow>()
+                                        {
+                                            if let Some(terminal_child) = scrolled.child() {
+                                                if let Some(terminal) =
+                                                    terminal_child.downcast_ref::<Terminal>()
+                                                {
+                                                    terminal.grab_focus();
+                                                    break;
+                                                }
+                                            }
                                         }
+                                        child = widget.next_sibling();
                                     }
                                 }
                             }
@@ -194,15 +298,15 @@ fn build_ui(app: &Application) {
     let new_tab_action = SimpleAction::new("new-tab", None);
     new_tab_action.connect_activate(move |_, _| {
         // Create a new terminal tab
-        let (scrolled_window, terminal) = create_terminal_tab(&config_for_action);
+        let (vbox, terminal, _search_bar) = create_terminal_tab(&config_for_action);
 
         let label = Label::new(Some("Terminal"));
 
-        let page_num = notebook_for_action.append_page(&scrolled_window, Some(&label));
-        notebook_for_action.set_tab_reorderable(&scrolled_window, true);
-        notebook_for_action.set_tab_detachable(&scrolled_window, false);
+        let page_num = notebook_for_action.append_page(&vbox, Some(&label));
+        notebook_for_action.set_tab_reorderable(&vbox, true);
+        notebook_for_action.set_tab_detachable(&vbox, false);
         notebook_for_action
-            .page(&scrolled_window)
+            .page(&vbox)
             .set_property("tab-expand", true);
 
         notebook_for_action.set_current_page(Some(page_num));
@@ -211,12 +315,7 @@ fn build_ui(app: &Application) {
         notebook_for_action.set_show_tabs(notebook_for_action.n_pages() > 1);
 
         // Set up dynamic tab title updates
-        setup_tab_title_update(
-            &terminal,
-            &notebook_for_action,
-            &scrolled_window,
-            &window_for_action,
-        );
+        setup_tab_title_update(&terminal, &notebook_for_action, &vbox, &window_for_action);
 
         // Give focus to the terminal
         terminal.grab_focus();
@@ -228,37 +327,54 @@ fn build_ui(app: &Application) {
             let n_pages = notebook_clone.n_pages();
             for i in 0..n_pages {
                 if let Some(page) = notebook_clone.nth_page(Some(i)) {
-                    if let Some(scrolled) = page.downcast_ref::<ScrolledWindow>() {
-                        if let Some(child) = scrolled.child() {
-                            if child.downcast_ref::<Terminal>() == Some(terminal) {
-                                notebook_clone.remove_page(Some(i));
-                                if notebook_clone.n_pages() == 0 {
-                                    std::process::exit(0);
-                                } else {
-                                    // Hide tabs if only one tab remains
-                                    notebook_clone.set_show_tabs(notebook_clone.n_pages() > 1);
+                    if let Some(vbox) = page.downcast_ref::<Box>() {
+                        let mut child = vbox.first_child();
+                        let mut found = false;
+                        while let Some(widget) = child {
+                            if let Some(scrolled) = widget.downcast_ref::<ScrolledWindow>() {
+                                if let Some(terminal_child) = scrolled.child() {
+                                    if terminal_child.downcast_ref::<Terminal>() == Some(terminal) {
+                                        found = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            child = widget.next_sibling();
+                        }
+                        if found {
+                            notebook_clone.remove_page(Some(i));
+                            if notebook_clone.n_pages() == 0 {
+                                std::process::exit(0);
+                            } else {
+                                // Hide tabs if only one tab remains
+                                notebook_clone.set_show_tabs(notebook_clone.n_pages() > 1);
 
-                                    // Give focus to the current tab's terminal
-                                    if let Some(current_page) = notebook_clone.current_page() {
-                                        if let Some(page) =
-                                            notebook_clone.nth_page(Some(current_page))
-                                        {
-                                            if let Some(scrolled) =
-                                                page.downcast_ref::<ScrolledWindow>()
-                                            {
-                                                if let Some(child) = scrolled.child() {
-                                                    if let Some(terminal) =
-                                                        child.downcast_ref::<Terminal>()
-                                                    {
-                                                        terminal.grab_focus();
+                                // Give focus to the current tab's terminal
+                                if let Some(current_page) = notebook_clone.current_page() {
+                                    if let Some(page) = notebook_clone.nth_page(Some(current_page))
+                                    {
+                                        if let Some(vbox) = page.downcast_ref::<Box>() {
+                                            let mut child = vbox.first_child();
+                                            while let Some(widget) = child {
+                                                if let Some(scrolled) =
+                                                    widget.downcast_ref::<ScrolledWindow>()
+                                                {
+                                                    if let Some(terminal_child) = scrolled.child() {
+                                                        if let Some(terminal) = terminal_child
+                                                            .downcast_ref::<Terminal>(
+                                                        ) {
+                                                            terminal.grab_focus();
+                                                            break;
+                                                        }
                                                     }
                                                 }
+                                                child = widget.next_sibling();
                                             }
                                         }
                                     }
                                 }
-                                return;
                             }
+                            return;
                         }
                     }
                 }
@@ -311,6 +427,31 @@ fn build_ui(app: &Application) {
     window.add_action(&next_tab_action);
     if let Some(next_tab_binding) = bindings.next_tab {
         app.set_accels_for_action("win.next-tab", &[&next_tab_binding]);
+    }
+
+    // Action for toggling search in current tab
+    let notebook_for_search = notebook.clone();
+    let search_action = SimpleAction::new("toggle-search", None);
+    search_action.connect_activate(move |_, _| {
+        if let Some(current_page) = notebook_for_search.current_page() {
+            if let Some(page) = notebook_for_search.nth_page(Some(current_page)) {
+                if let Some(vbox) = page.downcast_ref::<Box>() {
+                    // Find the SearchBar in the Box children
+                    let mut child = vbox.first_child();
+                    while let Some(widget) = child {
+                        if let Some(search_bar) = widget.downcast_ref::<SearchBar>() {
+                            search_bar.set_search_mode(!search_bar.is_search_mode());
+                            break;
+                        }
+                        child = widget.next_sibling();
+                    }
+                }
+            }
+        }
+    });
+    window.add_action(&search_action);
+    if let Some(search_binding) = bindings.search {
+        app.set_accels_for_action("win.toggle-search", &[&search_binding]);
     }
 
     // Display the window

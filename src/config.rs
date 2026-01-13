@@ -10,6 +10,8 @@ pub struct KeyBindings {
     pub prev_tab: Option<String>,
     /// Keyboard shortcut to switch to next tab
     pub next_tab: Option<String>,
+    /// Keyboard shortcut to toggle search in current terminal
+    pub search: Option<String>,
 }
 
 impl Default for KeyBindings {
@@ -18,6 +20,7 @@ impl Default for KeyBindings {
             new_tab: Some("<Ctrl><Shift>T".to_string()),
             prev_tab: Some("<Ctrl>Left".to_string()),
             next_tab: Some("<Ctrl>Right".to_string()),
+            search: Some("<Ctrl><Shift>F".to_string()),
         }
     }
 }
