@@ -99,6 +99,7 @@ fn setup_tab_title_update(
 fn build_ui(app: &Application) {
     // Load configuration
     let config = Rc::new(Config::load());
+    let bindings = config.get_bindings();
 
     // Create a notebook (tabbed interface)
     let notebook = Notebook::builder()
@@ -266,7 +267,9 @@ fn build_ui(app: &Application) {
     });
 
     window.add_action(&new_tab_action);
-    app.set_accels_for_action("win.new-tab", &["<Ctrl><Shift>T"]);
+    if let Some(new_tab_binding) = bindings.new_tab {
+        app.set_accels_for_action("win.new-tab", &[&new_tab_binding]);
+    }
 
     // Action for previous tab (Ctrl+Alt+Left)
     let notebook_for_prev = notebook.clone();
@@ -285,7 +288,9 @@ fn build_ui(app: &Application) {
         }
     });
     window.add_action(&prev_tab_action);
-    app.set_accels_for_action("win.prev-tab", &["<Ctrl>Left"]);
+    if let Some(prev_tab_binding) = bindings.prev_tab {
+        app.set_accels_for_action("win.prev-tab", &[&prev_tab_binding]);
+    }
 
     // Action for next tab (Ctrl+Alt+Right)
     let notebook_for_next = notebook.clone();
@@ -304,7 +309,9 @@ fn build_ui(app: &Application) {
         }
     });
     window.add_action(&next_tab_action);
-    app.set_accels_for_action("win.next-tab", &["<Ctrl>Right"]);
+    if let Some(next_tab_binding) = bindings.next_tab {
+        app.set_accels_for_action("win.next-tab", &[&next_tab_binding]);
+    }
 
     // Display the window
     window.present();

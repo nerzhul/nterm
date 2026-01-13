@@ -2,6 +2,26 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KeyBindings {
+    /// Keyboard shortcut to create a new tab
+    pub new_tab: Option<String>,
+    /// Keyboard shortcut to switch to previous tab
+    pub prev_tab: Option<String>,
+    /// Keyboard shortcut to switch to next tab
+    pub next_tab: Option<String>,
+}
+
+impl Default for KeyBindings {
+    fn default() -> Self {
+        Self {
+            new_tab: Some("<Ctrl><Shift>T".to_string()),
+            prev_tab: Some("<Ctrl>Left".to_string()),
+            next_tab: Some("<Ctrl>Right".to_string()),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
     /// The shell command to execute (e.g., "/bin/bash", "/usr/bin/zsh")
@@ -10,6 +30,8 @@ pub struct Config {
     pub scrollback_lines: Option<i64>,
     /// Enable cursor blinking
     pub cursor_blink: Option<bool>,
+    /// Keyboard shortcuts configuration
+    pub bindings: Option<KeyBindings>,
 }
 
 impl Default for Config {
@@ -18,6 +40,7 @@ impl Default for Config {
             shell: None,
             scrollback_lines: Some(10000),
             cursor_blink: Some(true),
+            bindings: Some(KeyBindings::default()),
         }
     }
 }
@@ -96,5 +119,10 @@ impl Config {
             .clone()
             .or_else(|| std::env::var("SHELL").ok())
             .unwrap_or_else(|| "/bin/bash".to_string())
+    }
+
+    /// Get keyboard bindings (from config or defaults)
+    pub fn get_bindings(&self) -> KeyBindings {
+        self.bindings.clone().unwrap_or_default()
     }
 }

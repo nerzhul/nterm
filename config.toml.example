@@ -14,3 +14,19 @@
 # Enable cursor blinking
 # Default: true
 # cursor_blink = true
+
+# Keyboard shortcuts configuration
+# Use GTK accelerator format: https://docs.gtk.org/gtk4/func.accelerator_parse.html
+# Examples: "<Ctrl><Shift>T", "<Alt>N", "<Ctrl>Page_Down"
+[bindings]
+# Create a new tab
+# Default: "<Ctrl><Shift>T"
+# new_tab = "<Ctrl><Shift>T"
+
+# Switch to previous tab
+# Default: "<Ctrl>Left"
+# prev_tab = "<Ctrl>Left"
+
+# Switch to next tab
+# Default: "<Ctrl>Right"
+# next_tab = "<Ctrl>Right"
