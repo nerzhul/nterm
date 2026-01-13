@@ -3,7 +3,6 @@ use gtk4::gio::SimpleAction;
 use gtk4::prelude::*;
 use gtk4::{Application, ApplicationWindow, Notebook, ScrolledWindow};
 use serde::{Deserialize, Serialize};
-use std::cell::RefCell;
 use std::fs;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -198,11 +197,22 @@ fn build_ui(app: &Application) {
     // Set up dynamic tab title updates
     setup_tab_title_update(&terminal, &notebook, &scrolled_window);
 
-    // Handle window closure when the last tab's child process exits
+    // Handle tab closure when the first tab's process exits
     let notebook_clone = notebook.clone();
-    terminal.connect_child_exited(move |_, _| {
-        if notebook_clone.n_pages() <= 1 {
-            std::process::exit(0);
+    let scrolled_window_clone = scrolled_window.clone();
+    terminal.connect_child_exited(move |_terminal, _| {
+        // Find and remove the tab containing this terminal
+        let n_pages = notebook_clone.n_pages();
+        for i in 0..n_pages {
+            if let Some(page) = notebook_clone.nth_page(Some(i)) {
+                if page == scrolled_window_clone {
+                    notebook_clone.remove_page(Some(i));
+                    if notebook_clone.n_pages() == 0 {
+                        std::process::exit(0);
+                    }
+                    return;
+                }
+            }
         }
     });
 
@@ -257,6 +267,44 @@ fn build_ui(app: &Application) {
 
     window.add_action(&new_tab_action);
     app.set_accels_for_action("win.new-tab", &["<Ctrl><Shift>T"]);
+
+    // Action for previous tab (Ctrl+Alt+Left)
+    let notebook_for_prev = notebook.clone();
+    let prev_tab_action = SimpleAction::new("prev-tab", None);
+    prev_tab_action.connect_activate(move |_, _| {
+        let n_pages = notebook_for_prev.n_pages();
+        if n_pages > 1 {
+            if let Some(current) = notebook_for_prev.current_page() {
+                let prev_page = if current == 0 {
+                    n_pages - 1
+                } else {
+                    current - 1
+                };
+                notebook_for_prev.set_current_page(Some(prev_page));
+            }
+        }
+    });
+    window.add_action(&prev_tab_action);
+    app.set_accels_for_action("win.prev-tab", &["<Ctrl>Left"]);
+
+    // Action for next tab (Ctrl+Alt+Right)
+    let notebook_for_next = notebook.clone();
+    let next_tab_action = SimpleAction::new("next-tab", None);
+    next_tab_action.connect_activate(move |_, _| {
+        let n_pages = notebook_for_next.n_pages();
+        if n_pages > 1 {
+            if let Some(current) = notebook_for_next.current_page() {
+                let next_page = if current >= n_pages - 1 {
+                    0
+                } else {
+                    current + 1
+                };
+                notebook_for_next.set_current_page(Some(next_page));
+            }
+        }
+    });
+    window.add_action(&next_tab_action);
+    app.set_accels_for_action("win.next-tab", &["<Ctrl>Right"]);
 
     // Display the window
     window.present();

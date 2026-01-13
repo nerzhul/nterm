@@ -44,6 +44,8 @@ cargo run
 ## Keyboard Shortcuts
 
 - `Ctrl+Shift+T` - Create a new terminal tab
+- `Ctrl+Left` - Go to previous tab (wraps to last tab)
+- `Ctrl+Right` - Go to next tab (wraps to first tab)
 
 ## Configuration
 
