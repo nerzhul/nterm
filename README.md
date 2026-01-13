@@ -56,17 +56,27 @@ For all available targets, run `make help`.
 
 - ✅ Full VTE terminal emulation
 - ✅ Multiple tabs support with `Ctrl+Shift+T` to create new tabs
+- ✅ Terminal search with regex support
 - ✅ Scrollbar support
 - ✅ 10,000 lines scrollback buffer
 - ✅ Uses system default shell ($SHELL)
 - ✅ Blinking cursor
 - ✅ XDG-compliant configuration file
+- ✅ Configurable keyboard shortcuts
 
 ## Keyboard Shortcuts
 
+### Tab Management
 - `Ctrl+Shift+T` - Create a new terminal tab
 - `Ctrl+Left` - Go to previous tab (wraps to last tab)
 - `Ctrl+Right` - Go to next tab (wraps to first tab)
+
+### Search
+- `Ctrl+Shift+F` - Toggle search bar in current terminal
+- `Enter` - Find next search result
+- `Shift+Enter` - Find previous search result
+
+All keyboard shortcuts can be customized in the configuration file.
 
 ## Configuration
 
@@ -83,6 +93,13 @@ scrollback_lines = 10000
 
 # Enable cursor blinking (optional, default: true)
 cursor_blink = true
+
+# Keyboard shortcuts (optional, all have defaults)
+[bindings]
+new_tab = "<Ctrl><Shift>T"
+prev_tab = "<Ctrl>Left"
+next_tab = "<Ctrl>Right"
+search = "<Ctrl><Shift>F"
 ```
 
 All configuration options are optional. If not specified, sensible defaults will be used.
