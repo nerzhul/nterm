@@ -134,12 +134,17 @@ fn build_ui(app: &Application) {
     // Give focus to the terminal
     terminal.grab_focus();
 
-    // Handle tab switching - give focus to the active terminal
-    notebook.connect_switch_page(|_notebook, page, _page_num| {
+    // Handle tab switching - give focus to the active terminal and update window title
+    let window_for_switch = window.clone();
+    notebook.connect_switch_page(move |_notebook, page, _page_num| {
         if let Some(scrolled) = page.downcast_ref::<ScrolledWindow>() {
             if let Some(child) = scrolled.child() {
                 if let Some(terminal) = child.downcast_ref::<Terminal>() {
                     terminal.grab_focus();
+                    // Update window title with the current terminal's title
+                    if let Some(title) = terminal.window_title() {
+                        window_for_switch.set_title(Some(&format!("NTerm - {}", title)));
+                    }
                 }
             }
         }
