@@ -38,6 +38,16 @@ fn create_terminal_tab(config: &Config) -> (Box, Terminal, SearchBar) {
     terminal.set_scroll_on_keystroke(true);
     terminal.set_scrollback_lines(config.scrollback_lines.unwrap_or(10000));
 
+    // Apply color palette from config
+    let palette = config.get_color_palette();
+    let colors = palette.get_palette();
+    let color_refs: Vec<&gtk4::gdk::RGBA> = colors.iter().collect();
+    terminal.set_colors(
+        Some(&palette.get_foreground()),
+        Some(&palette.get_background()),
+        &color_refs,
+    );
+
     // Launch the shell from config
     let shell = config.get_shell();
     terminal.spawn_async(

@@ -63,6 +63,7 @@ For all available targets, run `make help`.
 - ✅ Blinking cursor
 - ✅ XDG-compliant configuration file
 - ✅ Configurable keyboard shortcuts
+- ✅ Color profiles support (Solarized, Dracula, Monokai, Gruvbox, Nord)
 
 ## Keyboard Shortcuts
 
@@ -94,12 +95,51 @@ scrollback_lines = 10000
 # Enable cursor blinking (optional, default: true)
 cursor_blink = true
 
+# Color profile (optional, default: solarized-dark)
+# Available: solarized-dark, solarized-light, dracula, monokai, gruvbox-dark, nord
+color_profile = "dracula"
+
 # Keyboard shortcuts (optional, all have defaults)
 [bindings]
 new_tab = "<Ctrl><Shift>T"
 prev_tab = "<Ctrl>Left"
 next_tab = "<Ctrl>Right"
 search = "<Ctrl><Shift>F"
+```
+
+### Color Profiles
+
+NTerm includes several built-in color profiles:
+
+- **solarized-dark** (default) - The popular Solarized Dark theme
+- **solarized-light** - Solarized Light variant
+- **dracula** - The Dracula color scheme
+- **monokai** - The classic Monokai theme
+- **gruvbox-dark** - Retro groove color scheme
+- **nord** - An arctic, north-bluish color palette
+
+You can also define custom colors in the configuration file:
+
+```toml
+[colors]
+foreground = "#f8f8f2"
+background = "#282a36"
+black = "#000000"
+red = "#ff5555"
+green = "#50fa7b"
+yellow = "#f1fa8c"
+blue = "#bd93f9"
+magenta = "#ff79c6"
+cyan = "#8be9fd"
+white = "#bfbfbf"
+bright_black = "#4d4d4d"
+bright_red = "#ff6e67"
+bright_green = "#5af78e"
+bright_yellow = "#f4f99d"
+bright_blue = "#caa9fa"
+bright_magenta = "#ff92d0"
+bright_cyan = "#9aedfe"
+bright_white = "#e6e6e6"
 ```
 
 All configuration options are optional. If not specified, sensible defaults will be used.
