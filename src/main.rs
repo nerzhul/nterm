@@ -11,6 +11,8 @@ use vte4::Terminal;
 use vte4::prelude::*;
 
 mod config;
+mod palette;
+
 use config::Config;
 
 const APP_ID: &str = "com.nterm.Terminal";
