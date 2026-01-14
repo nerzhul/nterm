@@ -2,8 +2,8 @@ use gtk4::Label;
 use gtk4::gio::SimpleAction;
 use gtk4::prelude::*;
 use gtk4::{
-    Application, ApplicationWindow, Box, Button, ButtonsType, MessageDialog, MessageType, Notebook,
-    Orientation, ResponseType, ScrolledWindow, SearchBar, SearchEntry,
+    Application, ApplicationWindow, Box, Button, ButtonsType, HeaderBar, MessageDialog,
+    MessageType, Notebook, Orientation, ResponseType, ScrolledWindow, SearchBar, SearchEntry,
 };
 use std::os::unix::io::AsRawFd;
 use std::rc::Rc;
@@ -12,13 +12,13 @@ use vte4::prelude::*;
 
 mod config;
 mod palette;
+mod strings;
 
 use config::Config;
-
-const APP_ID: &str = "com.nterm.Terminal";
+use strings as s;
 
 fn main() {
-    let app = Application::builder().application_id(APP_ID).build();
+    let app = Application::builder().application_id(s::APP_ID).build();
 
     app.connect_activate(build_ui);
     app.run();
@@ -40,7 +40,7 @@ impl MatchRegexes {
             r#"(ftp|http)s?://[^ \t\n\b()<>{}«»\[\]'"]+[^.]"#,
             0x00000408, // PCRE2_CASELESS | PCRE2_MULTILINE
         )
-        .expect("Failed to compile HTTP/FTP regex pattern");
+        .expect(s::ERROR_COMPILE_HTTP_REGEX);
 
         // Email regex: [^ \t\n\b]+@([^ \t\n\b]+\.)+([a-zA-Z]{2,4})
         // PCRE2_CASELESS (0x00000008) | PCRE2_MULTILINE (0x00000400)
@@ -48,7 +48,7 @@ impl MatchRegexes {
             r"[^ \t\n\b]+@([^ \t\n\b]+\.)+([a-zA-Z]{2,4})",
             0x00000408, // PCRE2_CASELESS | PCRE2_MULTILINE
         )
-        .expect("Failed to compile email regex pattern");
+        .expect(s::ERROR_COMPILE_EMAIL_REGEX);
 
         Self {
             http_regex,
@@ -111,7 +111,12 @@ fn create_terminal_tab(config: &Config, regexes: &MatchRegexes) -> (Box, Termina
                 None::<&gtk4::gio::AppLaunchContext>,
             )
             .map_err(|e| {
-                eprintln!("Failed to open URL {}: {}", url, e);
+                eprintln!(
+                    "{}",
+                    s::ERROR_FAILED_TO_OPEN_URL
+                        .replace("{}", &url)
+                        .replace("{}", &e.to_string())
+                );
             });
         }
     });
@@ -140,7 +145,10 @@ fn create_terminal_tab(config: &Config, regexes: &MatchRegexes) -> (Box, Termina
         None::<&gtk4::gio::Cancellable>,
         |result| {
             if let Err(e) = result {
-                eprintln!("Error launching shell: {}", e);
+                eprintln!(
+                    "{}",
+                    s::format_single(s::ERROR_LAUNCHING_SHELL, &e.to_string())
+                );
             }
         },
     );
@@ -158,12 +166,12 @@ fn create_terminal_tab(config: &Config, regexes: &MatchRegexes) -> (Box, Termina
     // Create previous and next buttons
     let prev_button = Button::builder()
         .icon_name("go-up-symbolic")
-        .tooltip_text("Previous result (Shift+Enter)")
+        .tooltip_text(s::TOOLTIP_SEARCH_PREVIOUS)
         .build();
 
     let next_button = Button::builder()
         .icon_name("go-down-symbolic")
-        .tooltip_text("Next result (Enter)")
+        .tooltip_text(s::TOOLTIP_SEARCH_NEXT)
         .build();
 
     // Create a horizontal box for search entry and buttons
@@ -304,15 +312,12 @@ fn create_close_button_with_confirmation(
                 .modal(true)
                 .message_type(MessageType::Warning)
                 .buttons(ButtonsType::None)
-                .text("Close tab?")
-                .secondary_text(&format!(
-                    "The program '{}' is running in this tab. Do you really want to close it?",
-                    program_name
-                ))
+                .text(s::DIALOG_CLOSE_TAB_TITLE)
+                .secondary_text(&s::format_close_tab_message(&program_name))
                 .build();
 
-            dialog.add_button("Cancel", ResponseType::Cancel);
-            dialog.add_button("Close", ResponseType::Accept);
+            dialog.add_button(s::BUTTON_CANCEL, ResponseType::Cancel);
+            dialog.add_button(s::BUTTON_CLOSE, ResponseType::Accept);
             dialog.set_default_response(ResponseType::Cancel);
 
             let notebook_for_dialog = notebook_clone.clone();
@@ -440,21 +445,34 @@ fn build_ui(app: &Application) {
     // Configure tabs to expand and fill available width
     notebook.set_tab_pos(gtk4::PositionType::Top);
 
+    // Create header bar with search button
+    let header_bar = HeaderBar::new();
+    header_bar.set_show_title_buttons(true);
+    header_bar.set_title_widget(Some(&Label::new(Some(s::APP_TITLE))));
+
+    let search_button = Button::builder()
+        .icon_name("edit-find-symbolic")
+        .tooltip_text(s::TOOLTIP_SEARCH)
+        .build();
+    header_bar.pack_end(&search_button);
+
     // Create the main application window
     let window = ApplicationWindow::builder()
         .application(app)
-        .title("NTerm - Terminal Emulator")
         .default_width(800)
         .default_height(600)
         .child(&notebook)
         .build();
+
+    // Set the custom header bar
+    window.set_titlebar(Some(&header_bar));
 
     // Create the first terminal tab
     let (vbox, terminal, _search_bar) = create_terminal_tab(&config, &regexes);
 
     // Create tab label with close button
     let tab_box = Box::new(Orientation::Horizontal, 6);
-    let tab_label = Label::new(Some("Terminal"));
+    let tab_label = Label::new(Some(s::TAB_LABEL_TERMINAL));
     tab_label.set_hexpand(true);
     tab_label.set_xalign(0.5);
     let close_button = create_close_button_with_confirmation(&notebook, &vbox, &terminal, &window);
@@ -472,6 +490,26 @@ fn build_ui(app: &Application) {
 
     // Give focus to the terminal
     terminal.grab_focus();
+
+    // Connect search button to toggle search in current tab
+    let notebook_for_search_btn = notebook.clone();
+    search_button.connect_clicked(move |_| {
+        if let Some(current_page) = notebook_for_search_btn.current_page() {
+            if let Some(page) = notebook_for_search_btn.nth_page(Some(current_page)) {
+                if let Some(vbox) = page.downcast_ref::<Box>() {
+                    // Find the SearchBar in the Box children
+                    let mut child = vbox.first_child();
+                    while let Some(widget) = child {
+                        if let Some(search_bar) = widget.downcast_ref::<SearchBar>() {
+                            search_bar.set_search_mode(!search_bar.is_search_mode());
+                            break;
+                        }
+                        child = widget.next_sibling();
+                    }
+                }
+            }
+        }
+    });
 
     // Handle tab switching - give focus to the active terminal and update window title
     let window_for_switch = window.clone();
@@ -557,7 +595,7 @@ fn build_ui(app: &Application) {
 
         // Create tab label with close button
         let tab_box = Box::new(Orientation::Horizontal, 6);
-        let label = Label::new(Some("Terminal"));
+        let label = Label::new(Some(s::TAB_LABEL_TERMINAL));
         label.set_hexpand(true);
         label.set_xalign(0.5);
         let close_button = create_close_button_with_confirmation(
