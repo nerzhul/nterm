@@ -36,6 +36,8 @@ fn create_terminal_tab(config: &Config) -> (Box, Terminal, SearchBar) {
         vte4::CursorBlinkMode::Off
     };
     terminal.set_cursor_blink_mode(cursor_mode);
+    terminal.set_audible_bell(config.audible_bell.unwrap_or(false));
+    terminal.set_mouse_autohide(true);
     terminal.set_scroll_on_output(true);
     terminal.set_scroll_on_keystroke(true);
     terminal.set_scrollback_lines(config.scrollback_lines.unwrap_or(10000));

@@ -15,6 +15,10 @@
 # Default: true
 # cursor_blink = true
 
+# Enable audible bell (beep sound on bell character)
+# Default: false
+# audible_bell = false
+
 # Color profile to use
 # Available profiles:
 #   - "solarized-dark" (default)

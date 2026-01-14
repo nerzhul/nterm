@@ -35,6 +35,8 @@ pub struct Config {
     pub scrollback_lines: Option<i64>,
     /// Enable cursor blinking
     pub cursor_blink: Option<bool>,
+    /// Enable audible bell
+    pub audible_bell: Option<bool>,
     /// Keyboard shortcuts configuration
     pub bindings: Option<KeyBindings>,
     /// Color profile name (e.g., "solarized-dark", "dracula", "monokai")
@@ -49,6 +51,7 @@ impl Default for Config {
             shell: None,
             scrollback_lines: Some(10000),
             cursor_blink: Some(true),
+            audible_bell: Some(false),
             bindings: Some(KeyBindings::default()),
             color_profile: None,
             colors: None,
