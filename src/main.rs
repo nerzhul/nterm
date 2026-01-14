@@ -24,8 +24,41 @@ fn main() {
     app.run();
 }
 
+/// Compiled regex patterns for URL and email matching
+struct MatchRegexes {
+    http_regex: vte4::Regex,
+    email_regex: vte4::Regex,
+}
+
+impl MatchRegexes {
+    /// Compile regex patterns for URL and email matching
+    /// Exits with error if compilation fails
+    fn compile() -> Self {
+        // HTTP/FTP regex: (ftp|http)s?://[^ \t\n\b()<>{}«»\[\]'"]+[^.]
+        // PCRE2_CASELESS (0x00000008) | PCRE2_MULTILINE (0x00000400)
+        let http_regex = vte4::Regex::for_match(
+            r#"(ftp|http)s?://[^ \t\n\b()<>{}«»\[\]'"]+[^.]"#,
+            0x00000408, // PCRE2_CASELESS | PCRE2_MULTILINE
+        )
+        .expect("Failed to compile HTTP/FTP regex pattern");
+
+        // Email regex: [^ \t\n\b]+@([^ \t\n\b]+\.)+([a-zA-Z]{2,4})
+        // PCRE2_CASELESS (0x00000008) | PCRE2_MULTILINE (0x00000400)
+        let email_regex = vte4::Regex::for_match(
+            r"[^ \t\n\b]+@([^ \t\n\b]+\.)+([a-zA-Z]{2,4})",
+            0x00000408, // PCRE2_CASELESS | PCRE2_MULTILINE
+        )
+        .expect("Failed to compile email regex pattern");
+
+        Self {
+            http_regex,
+            email_regex,
+        }
+    }
+}
+
 /// Create a new terminal tab with the given configuration
-fn create_terminal_tab(config: &Config) -> (Box, Terminal, SearchBar) {
+fn create_terminal_tab(config: &Config, regexes: &MatchRegexes) -> (Box, Terminal, SearchBar) {
     // Create the VTE terminal widget
     let terminal = Terminal::new();
 
@@ -41,6 +74,48 @@ fn create_terminal_tab(config: &Config) -> (Box, Terminal, SearchBar) {
     terminal.set_scroll_on_output(true);
     terminal.set_scroll_on_keystroke(true);
     terminal.set_scrollback_lines(config.scrollback_lines.unwrap_or(10000));
+
+    // Add regex matches for clickable URLs and emails
+    terminal.match_add_regex(&regexes.http_regex, 0);
+    terminal.match_add_regex(&regexes.email_regex, 0);
+
+    // Handle clicks on matched URLs/emails to open them
+    // Use button-press-event to catch clicks before text selection
+    let terminal_clone = terminal.clone();
+    let gesture = gtk4::GestureClick::new();
+    gesture.set_button(1); // Left click
+    gesture.set_propagation_phase(gtk4::PropagationPhase::Capture);
+
+    gesture.connect_pressed(move |gesture, _n_press, x, y| {
+        // Check if there's a match at this position
+        let (matched, _tag) = terminal_clone.check_match_at(x, y);
+        if let Some(url_str) = matched {
+            // Prevent default text selection behavior for this click
+            gesture.set_state(gtk4::EventSequenceState::Claimed);
+
+            let url = if url_str.starts_with("http://")
+                || url_str.starts_with("https://")
+                || url_str.starts_with("ftp://")
+                || url_str.starts_with("ftps://")
+            {
+                url_str.to_string()
+            } else if url_str.contains('@') {
+                format!("mailto:{}", url_str)
+            } else {
+                url_str.to_string()
+            };
+
+            // Open URL with default handler
+            let _ = gtk4::gio::AppInfo::launch_default_for_uri(
+                &url,
+                None::<&gtk4::gio::AppLaunchContext>,
+            )
+            .map_err(|e| {
+                eprintln!("Failed to open URL {}: {}", url, e);
+            });
+        }
+    });
+    terminal.add_controller(gesture);
 
     // Apply color palette from config
     let palette = config.get_color_palette();
@@ -353,6 +428,9 @@ fn build_ui(app: &Application) {
     let config = Rc::new(Config::load());
     let bindings = config.get_bindings();
 
+    // Compile regex patterns globally (will exit on failure)
+    let regexes = Rc::new(MatchRegexes::compile());
+
     // Create a notebook (tabbed interface)
     let notebook = Notebook::builder()
         .scrollable(true)
@@ -372,7 +450,7 @@ fn build_ui(app: &Application) {
         .build();
 
     // Create the first terminal tab
-    let (vbox, terminal, _search_bar) = create_terminal_tab(&config);
+    let (vbox, terminal, _search_bar) = create_terminal_tab(&config, &regexes);
 
     // Create tab label with close button
     let tab_box = Box::new(Orientation::Horizontal, 6);
@@ -468,12 +546,14 @@ fn build_ui(app: &Application) {
     // Set up keyboard shortcuts using actions
     let notebook_for_action = notebook.clone();
     let config_for_action = config.clone();
+    let regexes_for_action = regexes.clone();
     let window_for_action = window.clone();
 
     let new_tab_action = SimpleAction::new("new-tab", None);
     new_tab_action.connect_activate(move |_, _| {
         // Create a new terminal tab
-        let (vbox, terminal, _search_bar) = create_terminal_tab(&config_for_action);
+        let (vbox, terminal, _search_bar) =
+            create_terminal_tab(&config_for_action, &regexes_for_action);
 
         // Create tab label with close button
         let tab_box = Box::new(Orientation::Horizontal, 6);
