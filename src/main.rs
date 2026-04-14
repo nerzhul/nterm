@@ -7,6 +7,7 @@ use gtk4::{
 };
 use std::os::unix::io::AsRawFd;
 use std::rc::Rc;
+use vte4::Format;
 use vte4::Terminal;
 use vte4::prelude::*;
 
@@ -57,6 +58,22 @@ impl MatchRegexes {
     }
 }
 
+/// Find the VTE terminal widget in the current notebook tab
+fn get_current_terminal(notebook: &Notebook) -> Option<Terminal> {
+    let page = notebook.nth_page(Some(notebook.current_page()?))?;
+    let vbox = page.downcast_ref::<Box>()?;
+    let mut child = vbox.first_child();
+    while let Some(widget) = child {
+        if let Some(scrolled) = widget.downcast_ref::<ScrolledWindow>() {
+            if let Some(terminal) = scrolled.child().and_then(|c| c.downcast::<Terminal>().ok()) {
+                return Some(terminal);
+            }
+        }
+        child = widget.next_sibling();
+    }
+    None
+}
+
 /// Create a new terminal tab with the given configuration
 fn create_terminal_tab(config: &Config, regexes: &MatchRegexes) -> (Box, Terminal, SearchBar) {
     // Create the VTE terminal widget
@@ -87,6 +104,15 @@ fn create_terminal_tab(config: &Config, regexes: &MatchRegexes) -> (Box, Termina
     gesture.set_propagation_phase(gtk4::PropagationPhase::Capture);
 
     gesture.connect_pressed(move |gesture, _n_press, x, y| {
+        // Only open links on Ctrl+Click
+        let ctrl_pressed = gesture.current_event().is_some_and(|e| {
+            e.modifier_state()
+                .contains(gtk4::gdk::ModifierType::CONTROL_MASK)
+        });
+        if !ctrl_pressed {
+            return;
+        }
+
         // Check if there's a match at this position
         let (matched, _tag) = terminal_clone.check_match_at(x, y);
         if let Some(url_str) = matched {
@@ -758,6 +784,32 @@ fn build_ui(app: &Application) {
     window.add_action(&search_action);
     if let Some(search_binding) = bindings.search {
         app.set_accels_for_action("win.toggle-search", &[&search_binding]);
+    }
+
+    // Action for copying selection to clipboard
+    let notebook_for_copy = notebook.clone();
+    let copy_action = SimpleAction::new("copy", None);
+    copy_action.connect_activate(move |_, _| {
+        if let Some(terminal) = get_current_terminal(&notebook_for_copy) {
+            terminal.copy_clipboard_format(Format::Text);
+        }
+    });
+    window.add_action(&copy_action);
+    if let Some(copy_binding) = bindings.copy {
+        app.set_accels_for_action("win.copy", &[&copy_binding]);
+    }
+
+    // Action for pasting from clipboard
+    let notebook_for_paste = notebook.clone();
+    let paste_action = SimpleAction::new("paste", None);
+    paste_action.connect_activate(move |_, _| {
+        if let Some(terminal) = get_current_terminal(&notebook_for_paste) {
+            terminal.paste_clipboard();
+        }
+    });
+    window.add_action(&paste_action);
+    if let Some(paste_binding) = bindings.paste {
+        app.set_accels_for_action("win.paste", &[&paste_binding]);
     }
 
     // Display the window

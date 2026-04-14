@@ -14,6 +14,10 @@ pub struct KeyBindings {
     pub next_tab: Option<String>,
     /// Keyboard shortcut to toggle search in current terminal
     pub search: Option<String>,
+    /// Keyboard shortcut to copy selection to clipboard
+    pub copy: Option<String>,
+    /// Keyboard shortcut to paste from clipboard
+    pub paste: Option<String>,
 }
 
 impl Default for KeyBindings {
@@ -23,6 +27,8 @@ impl Default for KeyBindings {
             prev_tab: Some("<Ctrl>Left".to_string()),
             next_tab: Some("<Ctrl>Right".to_string()),
             search: Some("<Ctrl><Shift>F".to_string()),
+            copy: Some("<Ctrl><Shift>C".to_string()),
+            paste: Some("<Ctrl><Shift>V".to_string()),
         }
     }
 }
