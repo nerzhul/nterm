@@ -2,9 +2,11 @@ use gtk4::Label;
 use gtk4::gio::SimpleAction;
 use gtk4::prelude::*;
 use gtk4::{
-    Application, ApplicationWindow, Box, Button, ButtonsType, HeaderBar, MessageDialog,
-    MessageType, Notebook, Orientation, ResponseType, ScrolledWindow, SearchBar, SearchEntry,
+    Application, ApplicationWindow, Box, Button, ButtonsType, DrawingArea, HeaderBar,
+    MessageDialog, MessageType, Notebook, Orientation, Overlay, ResponseType, ScrolledWindow,
+    SearchBar, SearchEntry,
 };
+use std::cell::Cell;
 use std::os::unix::io::AsRawFd;
 use std::rc::Rc;
 use vte4::Format;
@@ -12,10 +14,12 @@ use vte4::Terminal;
 use vte4::prelude::*;
 
 mod config;
+mod explosion;
 mod palette;
 mod strings;
 
 use config::Config;
+use explosion::ExplosionState;
 use strings as s;
 
 fn main() {
@@ -58,20 +62,36 @@ impl MatchRegexes {
     }
 }
 
+/// Recursively find a VTE terminal widget in a widget subtree
+fn find_terminal_in_widget(widget: &gtk4::Widget) -> Option<Terminal> {
+    if let Some(terminal) = widget.downcast_ref::<Terminal>() {
+        return Some(terminal.clone());
+    }
+    if let Some(scrolled) = widget.downcast_ref::<ScrolledWindow>() {
+        return scrolled
+            .child()
+            .and_then(|c| find_terminal_in_widget(&c));
+    }
+    if let Some(overlay) = widget.downcast_ref::<Overlay>() {
+        return overlay
+            .child()
+            .and_then(|c| find_terminal_in_widget(&c));
+    }
+    // Iterate children for container types (Box, etc.)
+    let mut child = widget.first_child();
+    while let Some(c) = child {
+        if let Some(terminal) = find_terminal_in_widget(&c) {
+            return Some(terminal);
+        }
+        child = c.next_sibling();
+    }
+    None
+}
+
 /// Find the VTE terminal widget in the current notebook tab
 fn get_current_terminal(notebook: &Notebook) -> Option<Terminal> {
     let page = notebook.nth_page(Some(notebook.current_page()?))?;
-    let vbox = page.downcast_ref::<Box>()?;
-    let mut child = vbox.first_child();
-    while let Some(widget) = child {
-        if let Some(scrolled) = widget.downcast_ref::<ScrolledWindow>() {
-            if let Some(terminal) = scrolled.child().and_then(|c| c.downcast::<Terminal>().ok()) {
-                return Some(terminal);
-            }
-        }
-        child = widget.next_sibling();
-    }
-    None
+    find_terminal_in_widget(&page)
 }
 
 /// Create a new terminal tab with the given configuration
@@ -264,7 +284,67 @@ fn create_terminal_tab(config: &Config, regexes: &MatchRegexes) -> (Box, Termina
     // Create a vertical box to hold search bar and terminal
     let vbox = Box::new(Orientation::Vertical, 0);
     vbox.append(&search_bar);
-    vbox.append(&scrolled_window);
+
+    // Wrap terminal in an Overlay for the explosion effect
+    let overlay = Overlay::new();
+    overlay.set_child(Some(&scrolled_window));
+
+    let drawing_area = DrawingArea::new();
+    drawing_area.set_can_target(false);
+    drawing_area.set_hexpand(true);
+    drawing_area.set_vexpand(true);
+    overlay.add_overlay(&drawing_area);
+
+    // Set up explosion state and drawing
+    let explosion_state = ExplosionState::new();
+    let state_for_draw = explosion_state.clone();
+    drawing_area.set_draw_func(move |_da, cr, _w, _h| {
+        state_for_draw.borrow().draw(cr);
+    });
+
+    // Connect bell signal for explosion effect
+    if config.bell_effect.unwrap_or(true) {
+        let explosion_for_bell = explosion_state.clone();
+        let da_for_bell = drawing_area.clone();
+        let timer_active = Rc::new(Cell::new(false));
+        terminal.connect_bell(move |terminal| {
+            // Get cursor position in character cells, adjusted for scrollback
+            let (col, row) = terminal.cursor_position();
+            let char_w = terminal.char_width() as f64;
+            let char_h = terminal.char_height() as f64;
+            let scroll_offset = terminal
+                .vadjustment()
+                .map(|adj| adj.value() as i64)
+                .unwrap_or(0);
+            let visible_row = row - scroll_offset;
+            let px = (col as f64 + 0.5) * char_w;
+            let py = (visible_row as f64 + 0.5) * char_h;
+
+            explosion_for_bell.borrow_mut().trigger(px, py);
+            da_for_bell.queue_draw();
+
+            // Start a timer if none is running; an existing timer will pick up the
+            // new trigger automatically.
+            if !timer_active.get() {
+                timer_active.set(true);
+                let state_for_tick = explosion_for_bell.clone();
+                let da_for_tick = da_for_bell.clone();
+                let flag = timer_active.clone();
+                glib::timeout_add_local(std::time::Duration::from_millis(16), move || {
+                    let active = state_for_tick.borrow_mut().tick();
+                    da_for_tick.queue_draw();
+                    if active {
+                        glib::ControlFlow::Continue
+                    } else {
+                        flag.set(false);
+                        glib::ControlFlow::Break
+                    }
+                });
+            }
+        });
+    }
+
+    vbox.append(&overlay);
 
     // Make the scrolled window expand to fill vertical space
     scrolled_window.set_vexpand(true);
@@ -382,22 +462,8 @@ fn close_tab(notebook: &Notebook, page_widget: &Box) {
                     // Give focus to the current tab's terminal
                     if let Some(current_page) = notebook.current_page() {
                         if let Some(page) = notebook.nth_page(Some(current_page)) {
-                            if let Some(vbox) = page.downcast_ref::<Box>() {
-                                let mut child = vbox.first_child();
-                                while let Some(widget) = child {
-                                    if let Some(scrolled) = widget.downcast_ref::<ScrolledWindow>()
-                                    {
-                                        if let Some(terminal_child) = scrolled.child() {
-                                            if let Some(terminal) =
-                                                terminal_child.downcast_ref::<Terminal>()
-                                            {
-                                                terminal.grab_focus();
-                                                break;
-                                            }
-                                        }
-                                    }
-                                    child = widget.next_sibling();
-                                }
+                            if let Some(terminal) = find_terminal_in_widget(&page) {
+                                terminal.grab_focus();
                             }
                         }
                     }
@@ -540,23 +606,10 @@ fn build_ui(app: &Application) {
     // Handle tab switching - give focus to the active terminal and update window title
     let window_for_switch = window.clone();
     notebook.connect_switch_page(move |_notebook, page, _page_num| {
-        if let Some(vbox) = page.downcast_ref::<Box>() {
-            // Find the ScrolledWindow in the Box children
-            let mut child = vbox.first_child();
-            while let Some(widget) = child {
-                if let Some(scrolled) = widget.downcast_ref::<ScrolledWindow>() {
-                    if let Some(terminal_child) = scrolled.child() {
-                        if let Some(terminal) = terminal_child.downcast_ref::<Terminal>() {
-                            terminal.grab_focus();
-                            // Update window title with the current terminal's title
-                            if let Some(title) = terminal.window_title() {
-                                window_for_switch.set_title(Some(&format!("NTerm - {}", title)));
-                            }
-                            break;
-                        }
-                    }
-                }
-                child = widget.next_sibling();
+        if let Some(terminal) = find_terminal_in_widget(page) {
+            terminal.grab_focus();
+            if let Some(title) = terminal.window_title() {
+                window_for_switch.set_title(Some(&format!("NTerm - {}", title)));
             }
         }
     });
@@ -580,23 +633,8 @@ fn build_ui(app: &Application) {
                         // Give focus to the current tab's terminal
                         if let Some(current_page) = notebook_clone.current_page() {
                             if let Some(page) = notebook_clone.nth_page(Some(current_page)) {
-                                if let Some(vbox) = page.downcast_ref::<Box>() {
-                                    let mut child = vbox.first_child();
-                                    while let Some(widget) = child {
-                                        if let Some(scrolled) =
-                                            widget.downcast_ref::<ScrolledWindow>()
-                                        {
-                                            if let Some(terminal_child) = scrolled.child() {
-                                                if let Some(terminal) =
-                                                    terminal_child.downcast_ref::<Terminal>()
-                                                {
-                                                    terminal.grab_focus();
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                        child = widget.next_sibling();
-                                    }
+                                if let Some(terminal) = find_terminal_in_widget(&page) {
+                                    terminal.grab_focus();
                                 }
                             }
                         }
@@ -659,49 +697,19 @@ fn build_ui(app: &Application) {
             let n_pages = notebook_clone.n_pages();
             for i in 0..n_pages {
                 if let Some(page) = notebook_clone.nth_page(Some(i)) {
-                    if let Some(vbox) = page.downcast_ref::<Box>() {
-                        let mut child = vbox.first_child();
-                        let mut found = false;
-                        while let Some(widget) = child {
-                            if let Some(scrolled) = widget.downcast_ref::<ScrolledWindow>() {
-                                if let Some(terminal_child) = scrolled.child() {
-                                    if terminal_child.downcast_ref::<Terminal>() == Some(terminal) {
-                                        found = true;
-                                        break;
-                                    }
-                                }
-                            }
-                            child = widget.next_sibling();
-                        }
-                        if found {
+                    if let Some(found) = find_terminal_in_widget(&page) {
+                        if &found == terminal {
                             notebook_clone.remove_page(Some(i));
                             if notebook_clone.n_pages() == 0 {
                                 std::process::exit(0);
                             } else {
-                                // Hide tabs if only one tab remains
                                 notebook_clone.set_show_tabs(notebook_clone.n_pages() > 1);
-
-                                // Give focus to the current tab's terminal
                                 if let Some(current_page) = notebook_clone.current_page() {
-                                    if let Some(page) = notebook_clone.nth_page(Some(current_page))
+                                    if let Some(page) =
+                                        notebook_clone.nth_page(Some(current_page))
                                     {
-                                        if let Some(vbox) = page.downcast_ref::<Box>() {
-                                            let mut child = vbox.first_child();
-                                            while let Some(widget) = child {
-                                                if let Some(scrolled) =
-                                                    widget.downcast_ref::<ScrolledWindow>()
-                                                {
-                                                    if let Some(terminal_child) = scrolled.child() {
-                                                        if let Some(terminal) = terminal_child
-                                                            .downcast_ref::<Terminal>(
-                                                        ) {
-                                                            terminal.grab_focus();
-                                                            break;
-                                                        }
-                                                    }
-                                                }
-                                                child = widget.next_sibling();
-                                            }
+                                        if let Some(t) = find_terminal_in_widget(&page) {
+                                            t.grab_focus();
                                         }
                                     }
                                 }

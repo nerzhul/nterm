@@ -19,6 +19,10 @@
 # Default: false
 # audible_bell = false
 
+# Enable pixelated explosion effect on bell (e.g., failed tab completion)
+# Default: true
+# bell_effect = true
+
 # Color profile to use
 # Available profiles:
 #   - "solarized-dark" (default)

@@ -43,6 +43,8 @@ pub struct Config {
     pub cursor_blink: Option<bool>,
     /// Enable audible bell
     pub audible_bell: Option<bool>,
+    /// Enable pixelated explosion effect on bell (e.g., failed tab completion)
+    pub bell_effect: Option<bool>,
     /// Keyboard shortcuts configuration
     pub bindings: Option<KeyBindings>,
     /// Color profile name (e.g., "solarized-dark", "dracula", "monokai")
@@ -58,6 +60,7 @@ impl Default for Config {
             scrollback_lines: Some(10000),
             cursor_blink: Some(true),
             audible_bell: Some(false),
+            bell_effect: Some(true),
             bindings: Some(KeyBindings::default()),
             color_profile: None,
             colors: None,
