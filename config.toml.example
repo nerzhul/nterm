@@ -9,6 +9,9 @@
 
 # Number of lines to keep in scrollback history
 # Default: 10000
+# On low-end machines or when processing very large outputs (e.g. cat/grep
+# of big files), lowering this value (e.g. 2000-5000) reduces the per-keystroke
+# regex matching cost on the scrollback and helps avoid UI freezes.
 # scrollback_lines = 10000
 
 # Enable cursor blinking

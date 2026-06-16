@@ -40,18 +40,19 @@ impl MatchRegexes {
     /// Exits with error if compilation fails
     fn compile() -> Self {
         // HTTP/FTP regex: (ftp|http)s?://[^ \t\n\b()<>{}«»\[\]'"]+[^.]
-        // PCRE2_CASELESS (0x00000008) | PCRE2_MULTILINE (0x00000400)
+        // PCRE2_CASELESS (0x00000008)
         let http_regex = vte4::Regex::for_match(
             r#"(ftp|http)s?://[^ \t\n\b()<>{}«»\[\]'"]+[^.]"#,
-            0x00000408, // PCRE2_CASELESS | PCRE2_MULTILINE
+            0x00000008, // PCRE2_CASELESS
         )
         .expect(s::ERROR_COMPILE_HTTP_REGEX);
 
-        // Email regex: [^ \t\n\b]+@([^ \t\n\b]+\.)+([a-zA-Z]{2,4})
-        // PCRE2_CASELESS (0x00000008) | PCRE2_MULTILINE (0x00000400)
+        // Email regex: [A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,24}
+        // Strict character classes to avoid catastrophic backtracking on long lines.
+        // PCRE2_CASELESS (0x00000008)
         let email_regex = vte4::Regex::for_match(
-            r"[^ \t\n\b]+@([^ \t\n\b]+\.)+([a-zA-Z]{2,4})",
-            0x00000408, // PCRE2_CASELESS | PCRE2_MULTILINE
+            r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,24}",
+            0x00000008, // PCRE2_CASELESS
         )
         .expect(s::ERROR_COMPILE_EMAIL_REGEX);
 
@@ -111,6 +112,7 @@ fn create_terminal_tab(config: &Config, regexes: &MatchRegexes) -> (Box, Termina
     terminal.set_scroll_on_output(true);
     terminal.set_scroll_on_keystroke(true);
     terminal.set_scrollback_lines(config.scrollback_lines.unwrap_or(10000));
+    terminal.set_enable_sixel(false);
 
     // Add regex matches for clickable URLs and emails
     terminal.match_add_regex(&regexes.http_regex, 0);
@@ -231,18 +233,34 @@ fn create_terminal_tab(config: &Config, regexes: &MatchRegexes) -> (Box, Termina
         .show_close_button(true)
         .build();
 
-    // Setup search functionality
+    // Setup search functionality (debounced 150ms to avoid recompiling on every keystroke)
     let terminal_for_search = terminal.clone();
-    search_entry.connect_search_changed(move |entry| {
-        let text = entry.text();
-        if !text.is_empty() {
-            // Create regex for search with MULTILINE flag (0x08000000 in PCRE2)
-            // VTE requires MULTILINE flag for terminal search
-            if let Ok(regex) = vte4::Regex::for_search(&text, 0x08000000) {
-                terminal_for_search.search_set_regex(Some(&regex), 0);
-                terminal_for_search.search_find_next();
-            }
+    let entry_for_search = search_entry.clone();
+    let pending_source: Rc<Cell<Option<glib::SourceId>>> = Rc::new(Cell::new(None));
+    search_entry.connect_search_changed(move |_entry| {
+        // Cancel any pending search update.
+        if let Some(id) = pending_source.take() {
+            id.remove();
         }
+        let terminal = terminal_for_search.clone();
+        let entry = entry_for_search.clone();
+        let pending = pending_source.clone();
+        let id = glib::timeout_add_local(std::time::Duration::from_millis(150), move || {
+            pending.set(None);
+            let text = entry.text();
+            if text.is_empty() {
+                terminal.search_set_regex(None, 0);
+            } else {
+                // Create regex for search with MULTILINE flag (0x08000000 in PCRE2)
+                // VTE requires MULTILINE flag for terminal search
+                if let Ok(regex) = vte4::Regex::for_search(&text, 0x08000000) {
+                    terminal.search_set_regex(Some(&regex), 0);
+                    terminal.search_find_next();
+                }
+            }
+            glib::ControlFlow::Break
+        });
+        pending_source.set(Some(id));
     });
 
     // Handle Enter key to find next
