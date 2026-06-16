@@ -18,6 +18,20 @@ pub struct KeyBindings {
     pub copy: Option<String>,
     /// Keyboard shortcut to paste from clipboard
     pub paste: Option<String>,
+    /// Keyboard shortcut to split the focused pane horizontally (top/bottom)
+    pub split_horizontal: Option<String>,
+    /// Keyboard shortcut to split the focused pane vertically (left/right)
+    pub split_vertical: Option<String>,
+    /// Keyboard shortcut to close the focused pane
+    pub close_pane: Option<String>,
+    /// Keyboard shortcut to move focus to the pane on the left
+    pub focus_left: Option<String>,
+    /// Keyboard shortcut to move focus to the pane on the right
+    pub focus_right: Option<String>,
+    /// Keyboard shortcut to move focus to the pane above
+    pub focus_up: Option<String>,
+    /// Keyboard shortcut to move focus to the pane below
+    pub focus_down: Option<String>,
 }
 
 impl Default for KeyBindings {
@@ -29,6 +43,13 @@ impl Default for KeyBindings {
             search: Some("<Ctrl><Shift>F".to_string()),
             copy: Some("<Ctrl><Shift>C".to_string()),
             paste: Some("<Ctrl><Shift>V".to_string()),
+            split_horizontal: Some("<Ctrl><Shift>D".to_string()),
+            split_vertical: Some("<Ctrl><Shift>E".to_string()),
+            close_pane: Some("<Ctrl><Shift>W".to_string()),
+            focus_left: Some("<Ctrl><Shift>Left".to_string()),
+            focus_right: Some("<Ctrl><Shift>Right".to_string()),
+            focus_up: Some("<Ctrl><Shift>Up".to_string()),
+            focus_down: Some("<Ctrl><Shift>Down".to_string()),
         }
     }
 }

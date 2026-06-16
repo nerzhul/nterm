@@ -86,3 +86,31 @@
 # Paste from clipboard
 # Default: "<Ctrl><Shift>V"
 # paste = "<Ctrl><Shift>V"
+
+# Split the focused pane horizontally (top/bottom)
+# Default: "<Ctrl><Shift>D"
+# split_horizontal = "<Ctrl><Shift>D"
+
+# Split the focused pane vertically (left/right)
+# Default: "<Ctrl><Shift>E"
+# split_vertical = "<Ctrl><Shift>E"
+
+# Close the focused pane (collapses the split; closes the tab if it was the only pane)
+# Default: "<Ctrl><Shift>W"
+# close_pane = "<Ctrl><Shift>W"
+
+# Move focus to the pane on the left
+# Default: "<Ctrl><Shift>Left"
+# focus_left = "<Ctrl><Shift>Left"
+
+# Move focus to the pane on the right
+# Default: "<Ctrl><Shift>Right"
+# focus_right = "<Ctrl><Shift>Right"
+
+# Move focus to the pane above
+# Default: "<Ctrl><Shift>Up"
+# focus_up = "<Ctrl><Shift>Up"
+
+# Move focus to the pane below
+# Default: "<Ctrl><Shift>Down"
+# focus_down = "<Ctrl><Shift>Down"

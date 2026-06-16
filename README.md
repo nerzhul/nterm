@@ -64,6 +64,7 @@ For all available targets, run `make help`.
 - ✅ XDG-compliant configuration file
 - ✅ Configurable keyboard shortcuts
 - ✅ Color profiles support (Solarized, Dracula, Monokai, Gruvbox, Nord)
+- ✅ Split panes (tmux-style) inside each tab
 
 ## Keyboard Shortcuts
 
@@ -76,6 +77,19 @@ For all available targets, run `make help`.
 - `Ctrl+Shift+F` - Toggle search bar in current terminal
 - `Enter` - Find next search result
 - `Shift+Enter` - Find previous search result
+
+### Split Panes
+Each tab can contain an arbitrary binary tree of panes (similar to tmux).
+- `Ctrl+Shift+E` - Split the focused pane vertically (side by side)
+- `Ctrl+Shift+D` - Split the focused pane horizontally (top/bottom)
+- `Ctrl+Shift+Left/Right/Up/Down` - Move focus to the adjacent pane
+- `Ctrl+Shift+W` - Close the focused pane (collapses the split; if it was the
+  only pane, the tab is closed)
+- The divider between panes is draggable.
+
+Tab navigation (`Ctrl+Left/Right`) and pane focus navigation
+(`Ctrl+Shift+Arrow`) are orthogonal: tabs switch the whole tab, pane
+navigation moves focus within a tab.
 
 All keyboard shortcuts can be customized in the configuration file.
 

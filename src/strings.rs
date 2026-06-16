@@ -11,6 +11,9 @@ pub const TAB_LABEL_TERMINAL: &str = "Terminal";
 pub const TOOLTIP_SEARCH: &str = "Search in terminal (Ctrl+Shift+F)";
 pub const TOOLTIP_SEARCH_PREVIOUS: &str = "Previous result (Shift+Enter)";
 pub const TOOLTIP_SEARCH_NEXT: &str = "Next result (Enter)";
+pub const TOOLTIP_SPLIT_HORIZONTAL: &str = "Split pane horizontally (Ctrl+Shift+D)";
+pub const TOOLTIP_SPLIT_VERTICAL: &str = "Split pane vertically (Ctrl+Shift+E)";
+pub const TOOLTIP_CLOSE_PANE: &str = "Close focused pane (Ctrl+Shift+W)";
 
 // Dialog messages
 pub const DIALOG_CLOSE_TAB_TITLE: &str = "Close tab?";
