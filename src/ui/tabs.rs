@@ -7,7 +7,6 @@ use gtk4::{
     Orientation, ResponseType,
 };
 use vte4::Terminal;
-use vte4::prelude::*;
 
 use crate::config::Config;
 use crate::strings as s;
@@ -171,8 +170,9 @@ pub fn setup_tab_title_update(
     let page_widget_clone = page_widget.clone();
     let window_clone = window.clone();
 
-    terminal.connect_window_title_changed(move |terminal| {
-        if let Some(title) = terminal.window_title() {
+    terminal.connect_notify_local(Some("window-title"), move |terminal, _pspec| {
+        let title = terminal.property::<Option<String>>("window-title");
+        if let Some(title) = title {
             let n_pages = notebook_clone.n_pages();
             for i in 0..n_pages {
                 if let Some(page) = notebook_clone.nth_page(Some(i)) {

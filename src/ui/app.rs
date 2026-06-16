@@ -190,7 +190,7 @@ impl AppCtx {
         notebook_clone.connect_switch_page(move |_notebook, page, _page_num| {
             if let Some(terminal) = super::tabs::find_terminal_in_widget(page) {
                 terminal.grab_focus();
-                let title = terminal.window_title();
+                let title = terminal.property::<Option<String>>("window-title");
                 *focused_for_switch.borrow_mut() = Some(terminal);
                 if let Some(title) = title {
                     window_for_switch.set_title(Some(&format!("NTerm - {}", title)));
